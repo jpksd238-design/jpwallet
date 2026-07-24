@@ -300,14 +300,29 @@ details summary{font-size:13px;color:var(--p600);cursor:pointer;font-weight:500;
 
 <!-- PAGE: OVERVIEW -->
 <div class="page active" id="page-overview">
-  <div class="month-banner" id="monthBanner" onclick="goList('all')">
-    <div><div class="mb-lbl" id="monthLabel">เดือนนี้</div><div class="mb-sub">คลิกดูรายการ →</div></div>
-    <div class="mb-val" id="monthBalance">฿0</div>
+  <!-- Month selector -->
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px">
+    <button class="cal-nav" onclick="overviewPrevMonth()">‹</button>
+    <div class="month-banner" id="monthBanner" onclick="goList('all')" style="flex:1;margin-bottom:0">
+      <div><div class="mb-lbl" id="monthLabel">เดือนนี้</div><div class="mb-sub">คลิกดูรายการเดือนนี้ →</div></div>
+      <div class="mb-val" id="monthBalance">฿0</div>
+    </div>
+    <button class="cal-nav" onclick="overviewNextMonth()">›</button>
+  </div>
+  <!-- Month totals -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:13px">
+    <div class="tb"><div class="tb-lbl">💰 รายรับเดือนนี้</div><div class="tb-val inc" id="ov-inc">฿0</div></div>
+    <div class="tb"><div class="tb-lbl">💸 รายจ่ายเดือนนี้</div><div class="tb-val exp" id="ov-exp">฿0</div></div>
+  </div>
+  <!-- Category breakdown this month -->
+  <div class="cc" id="ov-breakdown">
+    <div class="cc-ttl">📊 ใช้จ่ายแต่ละหมวด — เดือนนี้</div>
+    <div id="ov-catList"></div>
   </div>
   <div class="cc"><div class="cc-ttl">📅 รายรับ-รายจ่ายรายวัน 7 วันล่าสุด</div><div class="bar-wrap"><canvas id="barChart"></canvas></div></div>
   <div class="pie-grid">
-    <div class="cc" onclick="goList('income')" style="cursor:pointer"><div class="cc-ttl">💰 รายรับ</div><div class="pie-wrap"><canvas id="pieIncome"></canvas></div><div class="leg-wrap" id="lgIncome"></div></div>
-    <div class="cc" onclick="goList('expense')" style="cursor:pointer"><div class="cc-ttl">💸 รายจ่าย</div><div class="pie-wrap"><canvas id="pieExpense"></canvas></div><div class="leg-wrap" id="lgExpense"></div></div>
+    <div class="cc" onclick="goList('income')" style="cursor:pointer"><div class="cc-ttl">💰 รายรับรวม</div><div class="pie-wrap"><canvas id="pieIncome"></canvas></div><div class="leg-wrap" id="lgIncome"></div></div>
+    <div class="cc" onclick="goList('expense')" style="cursor:pointer"><div class="cc-ttl">💸 รายจ่ายรวม</div><div class="pie-wrap"><canvas id="pieExpense"></canvas></div><div class="leg-wrap" id="lgExpense"></div></div>
   </div>
 </div>
 
@@ -331,6 +346,11 @@ details summary{font-size:13px;color:var(--p600);cursor:pointer;font-weight:500;
 <!-- PAGE: LIST -->
 <div class="page" id="page-list">
   <div class="filter-bar">
+    <div class="fr fr1" style="margin-bottom:8px">
+      <div style="position:relative">
+        <input type="text" class="inp" id="fSearch" placeholder="🔍 ค้นหา รายละเอียด หมวดหมู่ ธนาคาร..." oninput="renderList()" style="padding-left:14px;width:100%">
+      </div>
+    </div>
     <div class="fr">
       <select class="sel" id="fType" onchange="renderList()"><option value="all">ทั้งหมด</option><option value="income">รายรับ</option><option value="expense">รายจ่าย</option></select>
       <input type="month" class="inp" id="fMonth" onchange="renderList()">
@@ -596,6 +616,7 @@ let noteEditId = null;
 let currentNType = 'pay';
 let currentNoteTab = 'pay';
 let calYear, calMonth;
+let overviewMonth = ''; // เดือนที่เลือกใน overview ('' = เดือนปัจจุบัน)
 let selectedEmoji = '💳';
 let barCI=null, pieII=null, pieEI=null;
 
@@ -632,8 +653,9 @@ function saveData(){
 }
 
 // ─── UTILS ──────────────────────────────────────
-function fmt(n){return '฿'+Number(n).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function fmtS(n){if(n>=1e6)return '฿'+(n/1e6).toFixed(1)+'M';if(n>=1e3)return '฿'+(n/1e3).toFixed(1)+'K';return fmt(n);}
+function fmt(n){return '฿'+Math.floor(Number(n)).toLocaleString('th-TH');}  // เต็มบาท ไม่ปัด
+function fmtS(n){n=Number(n)||0;if(n>=1e6)return '฿'+(n/1e6).toFixed(1)+'M';if(n>=1e3)return '฿'+(n/1e3).toFixed(0)+'K';return fmt(n);}
+function fmtFull(n){return '฿'+Math.floor(Number(n)).toLocaleString('th-TH');}  // ปฏิทิน — ตัวเลขเต็ม
 function todayStr(){return new Date().toISOString().slice(0,10);}
 function thisMonth(){let n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
@@ -661,43 +683,82 @@ function goOverview(){showPage('overview',document.querySelectorAll('.nb')[0]);}
 function goList(type){
   let btns=document.querySelectorAll('.nb');
   showPage('list',btns[2]);
+  document.getElementById('fMonth').value=getOverviewMonth();
   if(type!=='all')document.getElementById('fType').value=type;
   else document.getElementById('fType').value='all';
   renderList();
 }
 
+// ─── OVERVIEW MONTH NAV ──────────────────────────
+function getOverviewMonth(){return overviewMonth||thisMonth();}
+function overviewPrevMonth(){
+  let [y,m]=getOverviewMonth().split('-').map(Number);
+  m--;if(m<1){m=12;y--;}
+  overviewMonth=y+'-'+String(m).padStart(2,'0');
+  renderCharts();
+}
+function overviewNextMonth(){
+  let [y,m]=getOverviewMonth().split('-').map(Number);
+  m++;if(m>12){m=1;y++;}
+  overviewMonth=y+'-'+String(m).padStart(2,'0');
+  renderCharts();
+}
+
 // ─── SUMMARY ────────────────────────────────────
 function updateSummary(){
-  // คำนวณตรงจาก entries array ทุกครั้ง — ไม่มี cache
-  let inc = 0, exp = 0;
+  let inc=0,exp=0;
   for(let e of entries){
-    if(e.type==='income') inc += Number(e.amount)||0;
-    else if(e.type==='expense') exp += Number(e.amount)||0;
+    if(e.type==='income') inc+=Number(e.amount)||0;
+    else if(e.type==='expense') exp+=Number(e.amount)||0;
   }
-  let bal = inc - exp;
-  // header strip
-  document.getElementById('hd-income').textContent = fmtS(inc);
-  document.getElementById('hd-expense').textContent = fmtS(exp);
-  let bEl = document.getElementById('hd-balance');
-  bEl.textContent = fmtS(Math.abs(bal));
-  bEl.className = 'sc-val' + (bal < 0 ? ' neg' : '');
-  // month banner
-  let mo = thisMonth();
-  let mInc = 0, mExp = 0;
+  let bal=inc-exp;
+  document.getElementById('hd-income').textContent=fmtS(inc);
+  document.getElementById('hd-expense').textContent=fmtS(exp);
+  let bEl=document.getElementById('hd-balance');
+  bEl.textContent=fmtS(Math.abs(bal));
+  bEl.className='sc-val'+(bal<0?' neg':'');
+
+  // month banner — ใช้ overviewMonth
+  let mo=getOverviewMonth();
+  let mInc=0,mExp=0;
   for(let e of entries){
-    if(!e.date.startsWith(mo)) continue;
-    if(e.type==='income') mInc += Number(e.amount)||0;
-    else if(e.type==='expense') mExp += Number(e.amount)||0;
+    if(!e.date.startsWith(mo))continue;
+    if(e.type==='income') mInc+=Number(e.amount)||0;
+    else if(e.type==='expense') mExp+=Number(e.amount)||0;
   }
-  let mBal = mInc - mExp;
+  let mBal=mInc-mExp;
   let moN=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  let nd = new Date();
-  let mbLbl = document.getElementById('monthLabel');
-  let mbEl = document.getElementById('monthBalance');
-  if(mbLbl) mbLbl.textContent = 'เดือน'+moN[nd.getMonth()]+' '+(nd.getFullYear()+543);
-  if(mbEl){
-    mbEl.textContent = (mBal>=0?'+':'-') + fmt(Math.abs(mBal));
-    mbEl.style.color = mBal>=0 ? 'var(--p700)' : 'var(--r600)';
+  let [y,mn]=mo.split('-').map(Number);
+  let mbLbl=document.getElementById('monthLabel');
+  let mbEl=document.getElementById('monthBalance');
+  let ovInc=document.getElementById('ov-inc');
+  let ovExp=document.getElementById('ov-exp');
+  if(mbLbl) mbLbl.textContent='เดือน'+moN[mn-1]+' '+(y+543);
+  if(mbEl){mbEl.textContent=(mBal>=0?'+':'-')+fmt(Math.abs(mBal));mbEl.style.color=mBal>=0?'var(--p700)':'var(--r600)';}
+  if(ovInc) ovInc.textContent=fmt(mInc);
+  if(ovExp) ovExp.textContent=fmt(mExp);
+
+  // category breakdown เดือนนี้ (รายจ่าย)
+  let catMap={};
+  for(let e of entries){
+    if(!e.date.startsWith(mo)||e.type!=='expense')continue;
+    catMap[e.category]=(catMap[e.category]||0)+(Number(e.amount)||0);
+  }
+  let sorted=Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+  let catEl=document.getElementById('ov-catList');
+  if(catEl){
+    if(!sorted.length){catEl.innerHTML='<div style="font-size:13px;color:var(--muted);padding:8px 0">ยังไม่มีรายจ่ายเดือนนี้</div>';return;}
+    let maxVal=sorted[0][1];
+    catEl.innerHTML=sorted.map(([cat,val])=>`
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+          <span>${cat}</span><span style="font-weight:600;color:var(--r600)">${fmt(val)}</span>
+        </div>
+        <div style="height:7px;background:var(--r50);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${Math.round(val/mExp*100)}%;background:var(--r400);border-radius:4px;transition:width .4s"></div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${mExp>0?Math.round(val/mExp*100):0}% ของรายจ่ายทั้งหมด</div>
+      </div>`).join('');
   }
 }
 
@@ -759,8 +820,8 @@ function renderCalendar(){
     let hasData=inc>0||exp>0;
     html+=`<div class="cal-day${isToday?' today':''}${hasData?' has-data':''}" onclick="showCalDay('${ds}',${d})">
       <div class="cal-day-num">${d}</div>
-      ${inc>0?`<div class="cal-dot-inc">+${inc>=1000?(inc/1000).toFixed(0)+'K':inc}</div>`:''}
-      ${exp>0?`<div class="cal-dot-exp">-${exp>=1000?(exp/1000).toFixed(0)+'K':exp}</div>`:''}
+      ${inc>0?`<div class="cal-dot-inc">+${fmtFull(inc)}</div>`:''}
+      ${exp>0?`<div class="cal-dot-exp">-${fmtFull(exp)}</div>`:''}
     </div>`;
   }
   // fill remaining
@@ -813,11 +874,16 @@ function renderList(){
   let fMonth=document.getElementById('fMonth').value;
   let fCat=document.getElementById('fCat').value;
   let fBank=document.getElementById('fBank').value;
+  let fSearch=(document.getElementById('fSearch')?.value||'').trim().toLowerCase();
   let data=[...entries].filter(e=>{
     if(fType!=='all'&&e.type!==fType)return false;
     if(fMonth&&!e.date.startsWith(fMonth))return false;
     if(fCat!=='all'&&e.category!==fCat)return false;
     if(fBank!=='all'&&e.bank!==fBank)return false;
+    if(fSearch){
+      let hay=(e.category+e.bank+(e.detail||'')+e.date).toLowerCase();
+      if(!hay.includes(fSearch))return false;
+    }
     return true;
   }).sort((a,b)=>b.date.localeCompare(a.date)||(b.id>a.id?1:-1));  // sort by date desc
   let tInc=data.filter(e=>e.type==='income').reduce((s,e)=>s+e.amount,0);
@@ -1080,20 +1146,35 @@ function renderFavs(){
 function useFav(id){
   let f=favs.find(x=>x.id===id);if(!f)return;
   if(f.amount>0){
+    // มีจำนวนคงที่ → เพิ่มเลยทันที
     entries.push({id:uid(),type:f.type,date:todayStr(),amount:f.amount,category:f.category,bank:f.bank,detail:f.detail||'',emoji:f.emoji||''});
     saveData();refreshAll();autoSync();
     toast((f.emoji||'⭐')+' เพิ่ม "'+f.name+'" '+fmt(f.amount)+' แล้ว!');
   } else {
-    openModal();
-    setTimeout(()=>{
-      setType(f.type,false);
-      renderCatPicker(f.category);renderBankSel(f.bank);
-      document.getElementById('fDetail').value=f.detail||'';
-      selectedEmoji=f.emoji||'💳';
-      document.getElementById('emojiDisplay').textContent=selectedEmoji;
-      document.getElementById('modalTitle').textContent='⭐ '+f.name;
-      document.getElementById('fAmount').focus();
-    },150);
+    // ไม่มีจำนวน → เปิด modal ให้กรอกจำนวน โดย prefill ทุกอย่าง
+    editId=null;
+    currentType=f.type;
+    selectedEmoji=f.emoji||catEmoji(f.category);
+    document.getElementById('modalTitle').textContent='⭐ '+f.name;
+    document.getElementById('fDate').value=todayStr();
+    document.getElementById('fAmount').value='';
+    document.getElementById('fDetail').value=f.detail||'';
+    document.getElementById('emojiDisplay').textContent=selectedEmoji;
+    document.getElementById('emojiPickerBox').style.display='none';
+    // set type buttons
+    document.getElementById('typeIncome').className='topt'+(f.type==='income'?' ai':'');
+    document.getElementById('typeExpense').className='topt'+(f.type==='expense'?' ae':'');
+    // render cats with correct type selected
+    let catSel=f.category;
+    document.getElementById('fCatVal').value=catSel;
+    document.getElementById('catPicker').innerHTML=cats[f.type].map(c=>`
+      <div class="cpill${c===catSel?' sel-'+f.type:''}" onclick="selectCat(this,'${c.replace(/'/g,"\\'")}')">
+        ${c}
+      </div>`).join('');
+    // set bank
+    renderBankSel(f.bank);
+    document.getElementById('entryOverlay').classList.add('open');
+    setTimeout(()=>document.getElementById('fAmount').focus(),200);
   }
 }
 
